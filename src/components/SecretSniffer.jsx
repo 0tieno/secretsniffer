@@ -17,38 +17,24 @@ const SecretSniffer = () => {
   const [scanResults, setScanResults] = useState(null);
   const [error, setError] = useState("");
 
-  // Mock scan function for frontend demo
-  const mockScan = async (url) => {
-    await new Promise((resolve) => setTimeout(resolve, 3000)); // Simulate scan time
+  // Real API scan function
+  const scanRepository = async (url) => {
+    const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:7071/api";
 
-    // Mock results - replace with real API call later
-    const mockResults = {
-      repoName: url.split("/").pop(),
-      totalSecrets: Math.floor(Math.random() * 10),
-      scanDate: new Date().toISOString(),
-      findings: [
-        {
-          id: 1,
-          file: "config/database.js",
-          commit: "a1b2c3d",
-          secretType: "Database Password",
-          severity: "high",
-          lineNumber: 15,
-          snippet: 'password: "super_secret_password"',
-        },
-        {
-          id: 2,
-          file: ".env.example",
-          commit: "e4f5g6h",
-          secretType: "API Key",
-          severity: "medium",
-          lineNumber: 7,
-          snippet: "API_KEY=sk-1234567890abcdef",
-        },
-      ],
-    };
+    const response = await fetch(`${apiUrl}/scan`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ repoUrl: url }),
+    });
 
-    return mockResults;
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || "Failed to scan repository");
+    }
+
+    return await response.json();
   };
 
   const handleScan = async () => {
@@ -67,7 +53,7 @@ const SecretSniffer = () => {
     setScanResults(null);
 
     try {
-      const results = await mockScan(repoUrl);
+      const results = await scanRepository(repoUrl);
       setScanResults(results);
     } catch (err) {
       setError("Failed to scan repository. Please try again.");

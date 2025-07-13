@@ -1,0 +1,41 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: secretsniffer
+metadata:
+  template: secretsniffer@0.0.1-beta
+  description: GFaaS - Git Forensics as a Service for scanning repositories for leaked secrets
+
+# Infrastructure configuration
+infra:
+  provider: bicep
+  path: infra
+
+# Services configuration  
+services:
+  secretsniffer-frontend:
+    project: .
+    language: js
+    host: staticwebapp
+    
+  secretsniffer-api:
+    project: api
+    language: js  
+    host: function
+
+# Hooks for build and deployment
+hooks:
+  preprovision:
+    shell: sh
+    run: |
+      echo "Preparing for deployment..."
+      
+  prepackage:
+    shell: sh  
+    run: |
+      echo "Building frontend..."
+      npm install
+      npm run build
+      
+      echo "Building API..."
+      cd api
+      npm install
