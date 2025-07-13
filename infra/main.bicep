@@ -204,6 +204,20 @@ resource storageTableContributorRole 'Microsoft.Authorization/roleAssignments@20
   }
 }
 
+// Give the managed identity Storage File Data SMB Share Contributor role
+resource storageFileContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, managedIdentity.id, 'Storage File Data SMB Share Contributor')
+  scope: storageAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '0c867c2a-1d8c-454a-a3db-ab2ea1bdc8bb'
+    ) // Storage File Data SMB Share Contributor
+    principalId: managedIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // Give the managed identity Monitoring Metrics Publisher role
 resource monitoringMetricsPublisherRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(subscription().id, managedIdentity.id, 'Monitoring Metrics Publisher')
@@ -249,6 +263,12 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
       '${managedIdentity.id}': {}
     }
   }
+  dependsOn: [
+    storageBlobContributorRole
+    storageQueueContributorRole
+    storageTableContributorRole
+    storageFileContributorRole
+  ]
   properties: {
     serverFarmId: functionAppServicePlan.id
     httpsOnly: true
@@ -256,7 +276,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
     clientAffinityEnabled: false
     publicNetworkAccess: 'Enabled'
     siteConfig: {
-      linuxFxVersion: 'NODE|18'
+      linuxFxVersion: 'NODE|20'
       alwaysOn: false
       cors: {
         allowedOrigins: ['*']
@@ -264,16 +284,8 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
       }
       appSettings: [
         {
-          name: 'AzureWebJobsStorage__accountName'
-          value: storageAccount.name
-        }
-        {
-          name: 'WEBSITE_CONTENTAZUREFILECONNECTIONSTRING'
+          name: 'AzureWebJobsStorage'
           value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
-        }
-        {
-          name: 'WEBSITE_CONTENTSHARE'
-          value: toLower(functionAppName)
         }
         {
           name: 'FUNCTIONS_EXTENSION_VERSION'
@@ -281,7 +293,7 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
         }
         {
           name: 'WEBSITE_NODE_DEFAULT_VERSION'
-          value: '~18'
+          value: '~20'
         }
         {
           name: 'FUNCTIONS_WORKER_RUNTIME'
@@ -354,8 +366,8 @@ resource staticWebApp 'Microsoft.Web/staticSites@2024-04-01' = {
     'azd-service-name': 'secretsniffer-frontend'
   }
   sku: {
-    name: 'Free'
-    tier: 'Free'
+    name: 'Standard'
+    tier: 'Standard'
   }
   identity: {
     type: 'UserAssigned'
