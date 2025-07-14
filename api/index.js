@@ -2,5 +2,5 @@
 // This file registers all function handlers
 
 // Import all function handlers
-require('./health');
-require('./scanRepo');
+require('./src/functions/health');
+require('./src/functions/scanRepo');

@@ -45,7 +45,7 @@ app.http('scanRepo', {
 
             // Validate input
             if (!repoUrl) {
-                context.log.error('No repository URL provided');
+                context.log('No repository URL provided');
                 return {
                     status: 400,
                     headers: corsHeaders,
@@ -58,7 +58,7 @@ app.http('scanRepo', {
 
             // Validate GitHub URL format
             if (!repoUrl.includes('github.com')) {
-                context.log.error(`Invalid repository URL: ${repoUrl}`);
+                context.log(`Invalid repository URL: ${repoUrl}`);
                 return {
                     status: 400,
                     headers: corsHeaders,
@@ -99,7 +99,7 @@ app.http('scanRepo', {
             }
 
         } catch (error) {
-            context.log.error('Error during repository scan:', error);
+            context.log('Error during repository scan:', error);
             
             return {
                 status: 500,
@@ -114,25 +114,6 @@ app.http('scanRepo', {
     }
 });
 
-// Health check endpoint
-app.http('health', {
-    methods: ['GET'],
-    authLevel: 'anonymous',
-    route: 'health',
-    handler: async (request, context) => {
-        return {
-            status: 200,
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                status: 'healthy',
-                timestamp: new Date().toISOString(),
-                version: '1.0.0'
-            })
-        };
-    }
-});
 
 /**
  * Create a temporary directory for repository cloning
@@ -161,7 +142,7 @@ async function cloneRepository(repoUrl, tmpDir, context) {
         
         context.log('Repository cloned successfully');
     } catch (error) {
-        context.log.error('Failed to clone repository:', error);
+        context.log('Failed to clone repository:', error);
         throw new Error(`Failed to clone repository: ${error.message}`);
     }
 }
@@ -293,7 +274,7 @@ async function formatScanResults(scanOutput, repoUrl, context) {
         };
 
     } catch (error) {
-        context.log.error('Failed to parse scan results:', error);
+        context.log('Failed to parse scan results:', error);
         throw new Error('Failed to process scan results');
     }
 }
@@ -342,7 +323,7 @@ async function cleanupTempDirectory(tmpDir, context) {
         await fs.rm(tmpDir, { recursive: true, force: true });
         context.log(`Cleaned up temporary directory: ${tmpDir}`);
     } catch (error) {
-        context.log.error('Failed to cleanup temporary directory:', error);
+        context.log('Failed to cleanup temporary directory:', error);
         // Don't throw here as cleanup failure shouldn't fail the request
     }
 }
