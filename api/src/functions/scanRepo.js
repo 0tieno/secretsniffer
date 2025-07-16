@@ -40,7 +40,8 @@ app.http('scanRepo', {
                 const body = await request.json();
                 repoUrl = body.repoUrl;
             } else {
-                repoUrl = request.query.get('repoUrl');
+                // Fix: Use request.query.repoUrl instead of request.query.get('repoUrl')
+                repoUrl = request.query.repoUrl;
             }
 
             // Validate input
@@ -100,14 +101,14 @@ app.http('scanRepo', {
 
         } catch (error) {
             context.log('Error during repository scan:', error);
-            
+            context.log('Error stack:', error.stack);
             return {
                 status: 500,
                 headers: corsHeaders,
                 body: JSON.stringify({
                     error: 'Internal server error',
                     message: 'Failed to scan repository. Please try again later.',
-                    details: process.env.NODE_ENV === 'development' ? error.message : undefined
+                    details: process.env.NODE_ENV === 'development' ? (error.stack || error.message) : undefined
                 })
             };
         }
@@ -148,79 +149,48 @@ async function cloneRepository(repoUrl, tmpDir, context) {
 }
 
 /**
- * Run Gitleaks scan on the cloned repository
+ * Run Gitleaks scan on the cloned repository using Docker
  */
 async function runGitleaksScan(repoPath, context) {
     return new Promise((resolve, reject) => {
-        context.log('Starting Gitleaks scan');
-        
-        // Note: In production, you would install Gitleaks binary in the container
-        // For now, we'll simulate the scan with mock data
-        // const gitleaksProcess = spawn('gitleaks', ['detect', '--source', repoPath, '--report-format', 'json']);
-        
-        // Mock Gitleaks output for demonstration
-        setTimeout(() => {
-            const mockResults = [
-                {
-                    "Description": "Generic API Key",
-                    "StartLine": 15,
-                    "EndLine": 15,
-                    "StartColumn": 15,
-                    "EndColumn": 45,
-                    "Match": "api_key = \"sk-1234567890abcdef1234567890abcdef\"",
-                    "Secret": "sk-1234567890abcdef1234567890abcdef",
-                    "File": "config/settings.py",
-                    "SymlinkFile": "",
-                    "Commit": "a1b2c3d4e5f6789012345678901234567890abcd",
-                    "Entropy": 4.5,
-                    "Author": "developer@example.com",
-                    "Email": "developer@example.com",
-                    "Date": new Date().toISOString(),
-                    "Message": "Add API configuration",
-                    "Tags": [],
-                    "RuleID": "generic-api-key"
-                },
-                {
-                    "Description": "AWS Access Key",
-                    "StartLine": 23,
-                    "EndLine": 23,
-                    "StartColumn": 20,
-                    "EndColumn": 40,
-                    "Match": "AWS_ACCESS_KEY_ID = \"AKIA1234567890ABCDEF\"",
-                    "Secret": "AKIA1234567890ABCDEF",
-                    "File": ".env",
-                    "SymlinkFile": "",
-                    "Commit": "b2c3d4e5f6789012345678901234567890abcdef",
-                    "Entropy": 3.8,
-                    "Author": "developer@example.com",
-                    "Email": "developer@example.com",
-                    "Date": new Date().toISOString(),
-                    "Message": "Add AWS credentials",
-                    "Tags": [],
-                    "RuleID": "aws-access-token"
-                }
-            ];
-            
-            context.log(`Mock scan completed. Found ${mockResults.length} potential secrets`);
-            resolve(JSON.stringify(mockResults));
-        }, 2000); // Simulate scan time
-        
-        /*
-        // Real Gitleaks implementation:
+        context.log('Starting Gitleaks scan via Docker');
+        const gitleaksImage = 'zricethez/gitleaks:latest';
+        const args = [
+            'run',
+            '--rm',
+            '-v', `${repoPath}:/repo`,
+            gitleaksImage,
+            'detect',
+            '--source', '/repo',
+            '--report-format', 'json'
+        ];
+        const scanTimeoutMs = 60 * 1000; // 1 minute timeout
+
         let output = '';
         let errorOutput = '';
+        let timedOut = false;
 
-        gitleaksProcess.stdout.on('data', (data) => {
+        const dockerProcess = spawn('docker', args);
+
+        const timeout = setTimeout(() => {
+            timedOut = true;
+            dockerProcess.kill();
+            context.log('Gitleaks scan timed out');
+            reject(new Error('Gitleaks scan timed out'));
+        }, scanTimeoutMs);
+
+        dockerProcess.stdout.on('data', (data) => {
             output += data.toString();
         });
 
-        gitleaksProcess.stderr.on('data', (data) => {
+        dockerProcess.stderr.on('data', (data) => {
             errorOutput += data.toString();
         });
 
-        gitleaksProcess.on('close', (code) => {
-            context.log(`Gitleaks process exited with code ${code}`);
-            
+        dockerProcess.on('close', (code) => {
+            clearTimeout(timeout);
+            if (timedOut) return;
+            context.log(`Gitleaks Docker process exited with code ${code}`);
             if (code === 0) {
                 // No secrets found
                 resolve('[]');
@@ -228,17 +198,16 @@ async function runGitleaksScan(repoPath, context) {
                 // Secrets found
                 resolve(output);
             } else {
-                // Error occurred
-                context.log.error('Gitleaks error output:', errorOutput);
-                reject(new Error(`Gitleaks scan failed with code ${code}: ${errorOutput}`));
+                context.log('Gitleaks Docker error output:', errorOutput);
+                reject(new Error(`Gitleaks Docker scan failed with code ${code}: ${errorOutput}`));
             }
         });
 
-        gitleaksProcess.on('error', (error) => {
-            context.log.error('Failed to start Gitleaks process:', error);
-            reject(new Error(`Failed to start Gitleaks: ${error.message}`));
+        dockerProcess.on('error', (error) => {
+            clearTimeout(timeout);
+            context.log('Failed to start Docker process:', error);
+            reject(new Error(`Failed to start Docker: ${error.message}`));
         });
-        */
     });
 }
 
@@ -248,8 +217,14 @@ async function runGitleaksScan(repoPath, context) {
 async function formatScanResults(scanOutput, repoUrl, context) {
     try {
         const findings = JSON.parse(scanOutput);
-        const repoName = repoUrl.split('/').pop().replace('.git', '');
-        
+        // Sanitize repoName extraction
+        let repoName = '';
+        try {
+            const urlParts = repoUrl.split('/');
+            repoName = urlParts[urlParts.length - 1].replace(/\.git$/, '') || urlParts[urlParts.length - 2];
+        } catch {
+            repoName = 'unknown';
+        }
         // Map Gitleaks output to our format
         const formattedFindings = findings.map((finding, index) => ({
             id: index + 1,
