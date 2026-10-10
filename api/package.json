@@ -8,7 +8,7 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "@azure/functions": "^4.5.1",
+    "@azure/functions": "^4.16.5",
     "simple-git": "^3.25.0",
     "axios": "^1.7.2",
     "tmp": "^0.2.3"
